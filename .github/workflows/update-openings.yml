@@ -1,0 +1,60 @@
+name: Update Openings Database
+
+on:
+  schedule:
+    - cron: '0 6 * * 1' # Every Monday at 06:00 UTC
+  workflow_dispatch: # Allow manual trigger
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update-openings:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download latest opening data
+        run: |
+          BASE_URL="https://raw.githubusercontent.com/lichess-org/chess-openings/master"
+          for file in a b c d e; do
+            curl -sSL "${BASE_URL}/${file}.tsv" -o "data/${file}.tsv"
+          done
+
+      - name: Check for changes
+        id: changes
+        run: |
+          if git diff --quiet data/; then
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+            echo "No changes detected in opening data"
+          else
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+            echo "Changes detected in opening data:"
+            git diff --stat data/
+          fi
+
+      - name: Setup Go
+        if: steps.changes.outputs.has_changes == 'true'
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.1'
+
+      - name: Run tests
+        if: steps.changes.outputs.has_changes == 'true'
+        run: go test -race ./...
+
+      - name: Create Pull Request
+        if: steps.changes.outputs.has_changes == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: auto/update-openings
+          commit-message: 'Update chess openings database from lichess-org/chess-openings'
+          title: 'Update chess openings database'
+          body: |
+            Automated update of the chess openings database from [lichess-org/chess-openings](https://github.com/lichess-org/chess-openings).
+
+            This PR was created automatically by the scheduled workflow.
+          labels: dependencies
+          delete-branch: true
