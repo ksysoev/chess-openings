@@ -63,8 +63,8 @@ func (b *Book) loadFile(path string) error {
 }
 
 // addEntry adds a single opening entry to both the position map and the trie.
-// For the position map, if an EPD already exists, the entry with fewer moves
-// (more general opening) is kept per Lichess conventions.
+// For the position map, if an EPD already exists, the entry with more moves
+// (more specific opening) is kept to provide the most precise classification.
 func (b *Book) addEntry(entry *openingEntry) {
 	existing, exists := b.positions[entry.epd]
 	if !exists || len(entry.uci) > len(parsePGNMoves(existing.PGN)) {
