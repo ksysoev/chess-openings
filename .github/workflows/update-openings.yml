@@ -1,0 +1,65 @@
+name: Update Openings Database
+
+on:
+  schedule:
+    - cron: '0 6 * * 1' # Every Monday at 06:00 UTC
+  workflow_dispatch: # Allow manual trigger
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update-openings:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download latest opening data
+        run: |
+          set -euo pipefail
+
+          BASE_URL="https://raw.githubusercontent.com/lichess-org/chess-openings/master"
+          for file in a b c d e; do
+            tmp_file="data/${file}.tsv.tmp"
+            curl -fsSL --retry 3 --retry-delay 5 --retry-connrefused \
+              -o "${tmp_file}" "${BASE_URL}/${file}.tsv"
+            mv "${tmp_file}" "data/${file}.tsv"
+          done
+
+      - name: Check for changes
+        id: changes
+        run: |
+          if git diff --quiet data/; then
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+            echo "No changes detected in opening data"
+          else
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+            echo "Changes detected in opening data:"
+            git diff --stat data/
+          fi
+
+      - name: Setup Go
+        if: steps.changes.outputs.has_changes == 'true'
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.1'
+
+      - name: Run tests
+        if: steps.changes.outputs.has_changes == 'true'
+        run: go test -race ./...
+
+      - name: Create Pull Request
+        if: steps.changes.outputs.has_changes == 'true'
+        uses: peter-evans/create-pull-request@22a9089034f40e5a961c8808d113e2c98fb63676 # v7
+        with:
+          branch: auto/update-openings
+          commit-message: 'Update chess openings database from lichess-org/chess-openings'
+          title: 'Update chess openings database'
+          body: |
+            Automated update of the chess openings database from [lichess-org/chess-openings](https://github.com/lichess-org/chess-openings).
+
+            This PR was created automatically by the scheduled workflow.
+          labels: dependencies
+          delete-branch: true
