@@ -238,6 +238,16 @@ func TestClassifyPGN(t *testing.T) {
 			pgn:      "1. d4 d5 2. Nc3 Nf6 3. Bf4",
 			wantName: "Rapport-Jobava System",
 		},
+		{
+			name:     "full PGN with tags and comments",
+			pgn:      "[Event \"Test\"]\n[Site \"Test\"]\n[Result \"*\"]\n\n1. e4 {best by test} c5 *",
+			wantName: "Sicilian Defense",
+		},
+		{
+			name:     "PGN with variations and NAGs",
+			pgn:      "1. e4 $1 e5 (1... c5 2. Nf3) 2. Nf3 Nc6 3. Bb5",
+			wantName: "Ruy Lopez",
+		},
 	}
 
 	for _, tc := range tests {
@@ -396,7 +406,7 @@ func TestLookupMoves(t *testing.T) {
 			wantName:  "Sicilian Defense",
 		},
 		{
-			name:      "prefix that is not a named opening",
+			name:      "known opening at exact prefix",
 			moves:     []string{"e2e4", "e7e5", "g1f3"},
 			wantFound: true,
 		},

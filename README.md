@@ -11,7 +11,7 @@ A Go library for identifying chess openings from move sequences. It uses the [Li
 
 - Position-based matching that handles transpositions (same position via different move orders)
 - Accepts UCI, SAN, PGN, FEN, and EPD input formats
-- Embedded database with zero external dependencies at runtime
+- Embedded database with no external files or network access required at runtime
 - ~3,500 named openings covering ECO codes A through E
 - Includes modern openings like the Rapport-Jobava System
 
@@ -80,7 +80,7 @@ func main() {
 | `New()` | - | Creates a `Book` loaded with the full Lichess database |
 | `Classify(uciMoves)` | UCI move strings | Identifies opening with transposition support |
 | `ClassifySAN(sanMoves)` | SAN move strings | Same as `Classify` but with SAN input |
-| `ClassifyPGN(pgn)` | PGN move text | Parses PGN and identifies the opening |
+| `ClassifyPGN(pgn)` | PGN string | Parses PGN (with optional tags/comments) and identifies the opening |
 | `ClassifyPosition(fen)` | FEN string | Looks up the opening for a board position |
 | `LookupPosition(epd)` | EPD string | Direct position lookup in the database |
 | `LookupMoves(uciMoves)` | UCI move strings | Exact move sequence lookup (no transpositions) |

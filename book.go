@@ -12,19 +12,26 @@ import (
 //go:embed data/*.tsv
 var dataFS embed.FS
 
+// positionEntry stores an opening alongside its move count so that
+// specificity comparisons during loading do not require reparsing PGN.
+type positionEntry struct {
+	opening   *Opening
+	moveCount int
+}
+
 // Book is a chess opening identification engine loaded with the Lichess
 // opening database. It identifies openings by matching board positions,
 // which naturally handles transpositions.
 type Book struct {
-	positions map[string]*Opening // EPD -> Opening (position-based lookup)
-	trie      *trieNode           // UCI move trie (sequence-based lookup)
+	positions map[string]*positionEntry // EPD -> positionEntry (position-based lookup)
+	trie      *trieNode                 // UCI move trie (sequence-based lookup)
 }
 
 // New creates a new Book loaded with the full Lichess opening database.
 // The database contains ~3,500 named openings across all ECO codes (A-E).
 func New() (*Book, error) {
 	book := &Book{
-		positions: make(map[string]*Opening),
+		positions: make(map[string]*positionEntry),
 		trie:      newTrieNode(),
 	}
 
@@ -67,8 +74,11 @@ func (b *Book) loadFile(path string) error {
 // (more specific opening) is kept to provide the most precise classification.
 func (b *Book) addEntry(entry *openingEntry) {
 	existing, exists := b.positions[entry.epd]
-	if !exists || len(entry.uci) > len(parsePGNMoves(existing.PGN)) {
-		b.positions[entry.epd] = entry.opening
+	if !exists || len(entry.uci) > existing.moveCount {
+		b.positions[entry.epd] = &positionEntry{
+			opening:   entry.opening,
+			moveCount: len(entry.uci),
+		}
 	}
 
 	b.trie.insert(entry.uci, entry.opening)
@@ -104,9 +114,9 @@ func (b *Book) Classify(uciMoves []string) (*Classification, error) {
 		}
 
 		epd := positionToEPD(game.Position())
-		if opening, found := b.positions[epd]; found {
+		if entry, found := b.positions[epd]; found {
 			best = &Classification{
-				Opening: opening,
+				Opening: entry.opening,
 				Ply:     i + 1,
 			}
 		}
@@ -137,9 +147,9 @@ func (b *Book) ClassifySAN(sanMoves []string) (*Classification, error) {
 		}
 
 		epd := positionToEPD(game.Position())
-		if opening, found := b.positions[epd]; found {
+		if entry, found := b.positions[epd]; found {
 			best = &Classification{
-				Opening: opening,
+				Opening: entry.opening,
 				Ply:     i + 1,
 			}
 		}
@@ -152,10 +162,12 @@ func (b *Book) ClassifySAN(sanMoves []string) (*Classification, error) {
 	return best, nil
 }
 
-// ClassifyPGN identifies the opening from a PGN move text string
-// (e.g. "1. e4 e5 2. Nf3 Nc6"). Move numbers are stripped automatically.
+// ClassifyPGN identifies the opening from a PGN string. It accepts both full
+// PGN (with tag pairs, comments, NAGs, and variations) and plain move text
+// (e.g. "1. e4 e5 2. Nf3 Nc6"). Non-movetext elements are stripped automatically.
 func (b *Book) ClassifyPGN(pgn string) (*Classification, error) {
-	moves := parsePGNMoves(pgn)
+	movetext := stripPGNToMovetext(pgn)
+	moves := parsePGNMoves(movetext)
 
 	return b.ClassifySAN(moves)
 }
@@ -164,9 +176,12 @@ func (b *Book) ClassifyPGN(pgn string) (*Classification, error) {
 // EPD format is FEN without the halfmove clock and fullmove number fields:
 // "<piece-placement> <active-color> <castling> <en-passant>".
 func (b *Book) LookupPosition(epd string) (*Opening, bool) {
-	opening, found := b.positions[epd]
+	entry, found := b.positions[epd]
+	if !found {
+		return nil, false
+	}
 
-	return opening, found
+	return entry.opening, true
 }
 
 // LookupMoves finds the opening matching the exact UCI move sequence in the trie.

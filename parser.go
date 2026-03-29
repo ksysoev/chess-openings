@@ -156,3 +156,58 @@ func parsePGNMoves(pgn string) []string {
 
 	return moves
 }
+
+// stripPGNToMovetext removes PGN tag pairs, comments, NAGs, and variations,
+// returning only the movetext portion suitable for parsePGNMoves.
+func stripPGNToMovetext(pgn string) string {
+	var buf strings.Builder
+
+	buf.Grow(len(pgn))
+
+	braceDepth := 0 // {comment} nesting
+	parenDepth := 0 // (variation) nesting
+	inTag := false  // [Tag "value"] line
+
+	for i := 0; i < len(pgn); i++ {
+		ch := pgn[i]
+
+		switch {
+		case ch == '[' && braceDepth == 0 && parenDepth == 0:
+			inTag = true
+		case inTag:
+			if ch == ']' {
+				inTag = false
+			}
+		case ch == '{':
+			braceDepth++
+		case braceDepth > 0:
+			if ch == '}' {
+				braceDepth--
+			}
+		case ch == '(':
+			parenDepth++
+		case parenDepth > 0:
+			if ch == ')' {
+				parenDepth--
+			}
+		case ch == '$':
+			// Skip NAG: $N where N is one or more digits.
+			i++
+
+			for i < len(pgn) && pgn[i] >= '0' && pgn[i] <= '9' {
+				i++
+			}
+
+			i-- // loop will increment
+		case ch == ';':
+			// Skip rest-of-line comment.
+			for i < len(pgn) && pgn[i] != '\n' {
+				i++
+			}
+		default:
+			buf.WriteByte(ch)
+		}
+	}
+
+	return buf.String()
+}
