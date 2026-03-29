@@ -17,7 +17,7 @@ type openingEntry struct {
 }
 
 // parseOpenings reads a TSV file (eco\tname\tpgn) and returns parsed opening entries.
-// It skips the header line and any malformed lines.
+// It skips the header line and returns an error on the first malformed line.
 func parseOpenings(r io.Reader) ([]*openingEntry, error) {
 	scanner := bufio.NewScanner(r)
 
