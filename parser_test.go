@@ -144,6 +144,21 @@ func TestParsePGNMoves(t *testing.T) {
 			want: []string{"e4", "e5"},
 		},
 		{
+			name: "compact format no space",
+			pgn:  "1.e4 e5 2.Nf3 Nc6",
+			want: []string{"e4", "e5", "Nf3", "Nc6"},
+		},
+		{
+			name: "black continuation dots",
+			pgn:  "1.e4 1...e5 2.Nf3",
+			want: []string{"e4", "e5", "Nf3"},
+		},
+		{
+			name: "compact with result",
+			pgn:  "1.e4 e5 1-0",
+			want: []string{"e4", "e5"},
+		},
+		{
 			name: "empty",
 			pgn:  "",
 			want: []string{},

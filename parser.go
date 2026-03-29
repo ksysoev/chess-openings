@@ -131,21 +131,22 @@ func positionToEPD(pos *chess.Position) string {
 }
 
 // parsePGNMoves extracts individual SAN moves from a PGN move text string.
-// It strips move numbers (e.g. "1.", "2.") and handles variations like
-// "1. e4 e5 2. Nf3 Nc6".
+// It strips move numbers (e.g. "1.", "2.", "1.e4", "1...e5") and handles
+// both spaced ("1. e4 e5") and compact ("1.e4 1...e5") PGN formats.
 func parsePGNMoves(pgn string) []string {
 	tokens := strings.Fields(pgn)
 	moves := make([]string, 0, len(tokens))
 
 	for _, token := range tokens {
-		// Skip move numbers like "1.", "2.", "12."
-		if strings.Contains(token, ".") {
-			continue
-		}
-
 		// Skip result markers.
 		if token == "1-0" || token == "0-1" || token == "1/2-1/2" || token == "*" {
 			continue
+		}
+
+		// Strip move-number prefix: "1.", "12.", "1...", "1.e4", "1...e5"
+		// Find the last dot and take everything after it.
+		if dotIdx := strings.LastIndex(token, "."); dotIdx >= 0 {
+			token = token[dotIdx+1:]
 		}
 
 		if token != "" {

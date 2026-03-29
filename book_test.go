@@ -372,6 +372,112 @@ func TestClassifyPosition_InvalidFEN(t *testing.T) {
 	assert.False(t, found)
 }
 
+func TestLookupMoves(t *testing.T) {
+	t.Parallel()
+
+	book := getTestBook(t)
+
+	tests := []struct {
+		name      string
+		wantName  string
+		moves     []string
+		wantFound bool
+	}{
+		{
+			name:      "exact Italian Game sequence",
+			moves:     []string{"e2e4", "e7e5", "g1f3", "b8c6", "f1c4"},
+			wantFound: true,
+			wantName:  "Italian Game",
+		},
+		{
+			name:      "exact Sicilian Defense sequence",
+			moves:     []string{"e2e4", "c7c5"},
+			wantFound: true,
+			wantName:  "Sicilian Defense",
+		},
+		{
+			name:      "prefix that is not a named opening",
+			moves:     []string{"e2e4", "e7e5", "g1f3"},
+			wantFound: true,
+		},
+		{
+			name:      "unknown sequence",
+			moves:     []string{"a2a3", "h7h5", "b2b4", "g7g5"},
+			wantFound: false,
+		},
+		{
+			name:      "empty moves",
+			moves:     []string{},
+			wantFound: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			opening, found := book.LookupMoves(tc.moves)
+			assert.Equal(t, tc.wantFound, found)
+
+			if tc.wantName != "" {
+				require.NotNil(t, opening)
+				assert.Equal(t, tc.wantName, opening.Name)
+			}
+		})
+	}
+}
+
+func TestSearchMoves(t *testing.T) {
+	t.Parallel()
+
+	book := getTestBook(t)
+
+	tests := []struct {
+		name     string
+		wantName string
+		moves    []string
+		wantNil  bool
+	}{
+		{
+			name:     "deepest match for Italian Game",
+			moves:    []string{"e2e4", "e7e5", "g1f3", "b8c6", "f1c4"},
+			wantName: "Italian Game",
+		},
+		{
+			name:  "moves beyond book still return deepest match",
+			moves: []string{"e2e4", "e7e5", "g1f3", "b8c6", "f1c4", "g8f6", "d2d3", "h7h6", "a2a3"},
+		},
+		{
+			name:    "completely unknown sequence",
+			moves:   []string{"h2h4", "h7h5", "g2g4", "h5g4"},
+			wantNil: false, // 1. h4 is "Kadas Opening" in the book
+		},
+		{
+			name:    "empty moves",
+			moves:   []string{},
+			wantNil: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			opening := book.SearchMoves(tc.moves)
+
+			if tc.wantNil {
+				assert.Nil(t, opening)
+				return
+			}
+
+			if tc.wantName != "" {
+				require.NotNil(t, opening)
+				assert.Equal(t, tc.wantName, opening.Name)
+			}
+		})
+	}
+}
+
 func TestSize(t *testing.T) {
 	t.Parallel()
 
