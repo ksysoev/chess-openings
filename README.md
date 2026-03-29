@@ -13,7 +13,7 @@ A Go library for identifying chess openings from move sequences. It uses the [Li
 - Accepts UCI, SAN, PGN, FEN, and EPD input formats
 - Embedded database with no external files or network access required at runtime
 - ~3,500 named openings covering ECO codes A through E
-- Includes modern openings like the Rapport-Jobava System
+- Includes modern openings
 
 ## Installation
 
