@@ -4,6 +4,9 @@ help: ## Show this help message
 	@awk 'BEGIN {FS = ":.*## "; printf "\nUsage:\n  make <target>\n\nTargets:\n"} \
 		/^([a-zA-Z_-]+):.*## / {printf "  %-10s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
+generate: ## Fetch openings and regenerate openings_gen.go
+	go generate ./...
+
 test: ## Run unit tests with race detector
 	go test --race ./...
 

@@ -1,0 +1,271 @@
+// Command generate fetches the Lichess chess-openings database and produces
+// a Go source file with pre-computed EPD positions and UCI move sequences.
+// This eliminates runtime PGN parsing and board replay from the library's
+// initialisation path.
+//
+// Usage:
+//
+//	go run ./cmd/generate
+package main
+
+import (
+	"bufio"
+	"fmt"
+	"go/format"
+	"io"
+	"log"
+	"net/http"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/notnil/chess"
+
+	"github.com/ksysoev/chess-openings/internal/epdutil"
+)
+
+const (
+	baseURL    = "https://raw.githubusercontent.com/lichess-org/chess-openings/master"
+	outputFile = "openings_gen.go"
+)
+
+var tsvFiles = []string{"a", "b", "c", "d", "e"}
+
+// httpClient is used for all HTTP requests with a sensible timeout so that
+// stalled connections in CI do not hang indefinitely.
+var httpClient = &http.Client{Timeout: 30 * time.Second}
+
+const (
+	maxRetries   = 3
+	initialDelay = 1 * time.Second
+)
+
+// entry holds the pre-computed data for a single opening.
+type entry struct {
+	eco  string
+	name string
+	pgn  string
+	epd  string
+	uci  []string
+}
+
+func main() {
+	log.SetFlags(0)
+	log.SetPrefix("generate: ")
+
+	var all []entry
+
+	for _, name := range tsvFiles {
+		url := fmt.Sprintf("%s/%s.tsv", baseURL, name)
+
+		log.Printf("fetching %s.tsv ...", name)
+
+		entries, err := fetchAndParse(url)
+		if err != nil {
+			log.Fatalf("processing %s.tsv: %v", name, err)
+		}
+
+		all = append(all, entries...)
+		log.Printf("  %d openings from %s.tsv", len(entries), name)
+	}
+
+	log.Printf("total: %d openings", len(all))
+
+	src := generate(all)
+
+	formatted, err := format.Source(src)
+	if err != nil {
+		// Write the unformatted source for debugging.
+		_ = os.WriteFile(outputFile, src, 0o644) //nolint:gosec // generated source file needs standard read permissions
+		log.Fatalf("gofmt failed (unformatted source written to %s): %v", outputFile, err)
+	}
+
+	if err := os.WriteFile(outputFile, formatted, 0o644); err != nil { //nolint:gosec // generated source file needs standard read permissions
+		log.Fatalf("writing %s: %v", outputFile, err)
+	}
+
+	log.Printf("wrote %s (%d bytes)", outputFile, len(formatted))
+}
+
+// fetchAndParse downloads a TSV file and parses every line into entries.
+// It retries all errors (network failures, non-200 HTTP responses) with
+// exponential backoff so that scheduled CI runs are resilient to brief
+// outages.
+func fetchAndParse(url string) ([]entry, error) {
+	var lastErr error
+
+	delay := initialDelay
+
+	for attempt := range maxRetries {
+		entries, err := doFetch(url)
+		if err == nil {
+			return entries, nil
+		}
+
+		lastErr = err
+
+		if attempt < maxRetries-1 {
+			log.Printf("  attempt %d/%d failed: %v — retrying in %s", attempt+1, maxRetries, err, delay)
+			time.Sleep(delay)
+			delay *= 2
+		}
+	}
+
+	return nil, fmt.Errorf("after %d attempts: %w", maxRetries, lastErr)
+}
+
+// doFetch performs a single HTTP GET and parses the TSV response.
+// It returns an error for network failures and non-200 status codes;
+// the caller decides whether to retry.
+func doFetch(url string) ([]entry, error) {
+	resp, err := httpClient.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("fetching %s: %w", url, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		// Drain body so the connection can be reused on retry.
+		_, _ = io.Copy(io.Discard, resp.Body)
+		return nil, fmt.Errorf("fetching %s: HTTP %d", url, resp.StatusCode)
+	}
+
+	return parseTSV(resp.Body)
+}
+
+// parseTSV reads a TSV stream (eco\tname\tpgn) and returns parsed entries.
+func parseTSV(r io.Reader) ([]entry, error) {
+	scanner := bufio.NewScanner(r)
+
+	// Skip header line.
+	if !scanner.Scan() {
+		if err := scanner.Err(); err != nil {
+			return nil, fmt.Errorf("reading header: %w", err)
+		}
+
+		return nil, nil
+	}
+
+	var entries []entry
+
+	lineNum := 1
+
+	for scanner.Scan() {
+		lineNum++
+
+		line := scanner.Text()
+		if line == "" {
+			continue
+		}
+
+		e, err := parseLine(line)
+		if err != nil {
+			return nil, fmt.Errorf("line %d: %w", lineNum, err)
+		}
+
+		entries = append(entries, e)
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("reading TSV: %w", err)
+	}
+
+	return entries, nil
+}
+
+// parseLine parses a single TSV line and replays the PGN to compute EPD and UCI.
+func parseLine(line string) (entry, error) {
+	const expectedFields = 3
+
+	parts := strings.SplitN(line, "\t", expectedFields)
+	if len(parts) != expectedFields {
+		return entry{}, fmt.Errorf("expected %d tab-separated fields, got %d", expectedFields, len(parts))
+	}
+
+	eco := parts[0]
+	name := parts[1]
+	pgn := parts[2]
+
+	epd, uciMoves, err := replayPGN(pgn)
+	if err != nil {
+		return entry{}, fmt.Errorf("replaying PGN for %s (%s): %w", name, pgn, err)
+	}
+
+	return entry{
+		eco:  eco,
+		name: name,
+		pgn:  pgn,
+		epd:  epd,
+		uci:  uciMoves,
+	}, nil
+}
+
+// replayPGN replays PGN moves on a chess board and returns the final EPD
+// and the sequence of UCI moves.
+func replayPGN(pgn string) (epd string, uciMoves []string, err error) {
+	moves := epdutil.ParsePGNMoves(pgn)
+	if len(moves) == 0 {
+		return "", nil, fmt.Errorf("no moves found in PGN: %q", pgn)
+	}
+
+	game := chess.NewGame()
+
+	uciMoves = make([]string, 0, len(moves))
+
+	for _, san := range moves {
+		if err = game.MoveStr(san); err != nil {
+			return "", nil, fmt.Errorf("invalid move %q: %w", san, err)
+		}
+
+		allMoves := game.Moves()
+		lastMove := allMoves[len(allMoves)-1]
+		uciMoves = append(uciMoves, lastMove.String())
+	}
+
+	epd = epdutil.PositionToEPD(game.Position())
+
+	return epd, uciMoves, nil
+}
+
+// generate produces the Go source for the pre-computed openings file.
+func generate(entries []entry) []byte {
+	var buf strings.Builder
+
+	buf.WriteString("// Code generated by cmd/generate; DO NOT EDIT.\n\n")
+	buf.WriteString("package openings\n\n")
+
+	// Type definition for the generated entries.
+	buf.WriteString("// generatedEntry holds pre-computed data for a single chess opening.\n")
+	buf.WriteString("// EPD and UCI moves are computed at generation time by replaying the PGN,\n")
+	buf.WriteString("// eliminating the need for runtime board replay.\n")
+	buf.WriteString("type generatedEntry struct {\n")
+	buf.WriteString("\teco  string\n")
+	buf.WriteString("\tname string\n")
+	buf.WriteString("\tpgn  string\n")
+	buf.WriteString("\tepd  string\n")
+	buf.WriteString("\tuci  []string\n")
+	buf.WriteString("}\n\n")
+
+	// Opening data as a fixed-size array.
+	fmt.Fprintf(&buf, "// generatedOpenings contains %d pre-computed chess openings from the\n", len(entries))
+	buf.WriteString("// Lichess opening database (https://github.com/lichess-org/chess-openings).\n")
+	fmt.Fprintf(&buf, "var generatedOpenings = [%d]generatedEntry{\n", len(entries))
+
+	for _, e := range entries {
+		fmt.Fprintf(&buf, "\t{%q, %q, %q, %q, []string{", e.eco, e.name, e.pgn, e.epd)
+
+		for i, m := range e.uci {
+			if i > 0 {
+				buf.WriteString(", ")
+			}
+
+			fmt.Fprintf(&buf, "%q", m)
+		}
+
+		buf.WriteString("}},\n")
+	}
+
+	buf.WriteString("}\n")
+
+	return []byte(buf.String())
+}

@@ -16,35 +16,25 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Download latest opening data
-        run: |
-          set -euo pipefail
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.1'
 
-          BASE_URL="https://raw.githubusercontent.com/lichess-org/chess-openings/master"
-          for file in a b c d e; do
-            tmp_file="data/${file}.tsv.tmp"
-            curl -fsSL --retry 3 --retry-delay 5 --retry-connrefused \
-              -o "${tmp_file}" "${BASE_URL}/${file}.tsv"
-            mv "${tmp_file}" "data/${file}.tsv"
-          done
+      - name: Regenerate openings database
+        run: go generate ./...
 
       - name: Check for changes
         id: changes
         run: |
-          if git diff --quiet data/; then
+          if git diff --quiet openings_gen.go; then
             echo "has_changes=false" >> "$GITHUB_OUTPUT"
-            echo "No changes detected in opening data"
+            echo "No changes detected in generated openings"
           else
             echo "has_changes=true" >> "$GITHUB_OUTPUT"
-            echo "Changes detected in opening data:"
-            git diff --stat data/
+            echo "Changes detected in generated openings:"
+            git diff --stat openings_gen.go
           fi
-
-      - name: Setup Go
-        if: steps.changes.outputs.has_changes == 'true'
-        uses: actions/setup-go@v6
-        with:
-          go-version: '1.26.1'
 
       - name: Run tests
         if: steps.changes.outputs.has_changes == 'true'

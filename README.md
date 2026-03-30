@@ -34,10 +34,7 @@ import (
 )
 
 func main() {
-	book, err := openings.New()
-	if err != nil {
-		log.Fatal(err)
-	}
+	book := openings.New()
 
 	// Classify from SAN moves
 	result, err := book.ClassifySAN([]string{"e4", "c5", "Nf3", "d6"})

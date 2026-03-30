@@ -11,17 +11,15 @@ import (
 var (
 	sharedBook     *Book
 	sharedBookOnce sync.Once
-	sharedBookErr  error
 )
 
 func getTestBook(t *testing.T) *Book {
 	t.Helper()
 
 	sharedBookOnce.Do(func() {
-		sharedBook, sharedBookErr = New()
+		sharedBook = New()
 	})
 
-	require.NoError(t, sharedBookErr)
 	require.NotNil(t, sharedBook)
 
 	return sharedBook
@@ -497,18 +495,12 @@ func TestSize(t *testing.T) {
 
 func BenchmarkNew(b *testing.B) {
 	for b.Loop() {
-		_, err := New()
-		if err != nil {
-			b.Fatal(err)
-		}
+		_ = New()
 	}
 }
 
 func BenchmarkClassifySAN(b *testing.B) {
-	book, err := New()
-	if err != nil {
-		b.Fatal(err)
-	}
+	book := New()
 
 	moves := []string{"e4", "c5", "Nf3", "d6", "d4", "cxd4", "Nxd4", "Nf6", "Nc3", "a6"}
 
@@ -523,10 +515,7 @@ func BenchmarkClassifySAN(b *testing.B) {
 }
 
 func BenchmarkClassifyUCI(b *testing.B) {
-	book, err := New()
-	if err != nil {
-		b.Fatal(err)
-	}
+	book := New()
 
 	moves := []string{"e2e4", "c7c5", "g1f3", "d7d6", "d2d4", "c5d4", "f3d4", "g8f6", "b1c3", "a7a6"}
 

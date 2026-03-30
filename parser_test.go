@@ -1,124 +1,11 @@
 package openings
 
 import (
-	"strings"
 	"testing"
 
+	"github.com/notnil/chess"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
-
-func TestParseOpenings(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name      string
-		input     string
-		wantCount int
-		wantErr   bool
-	}{
-		{
-			name:      "valid TSV with header",
-			input:     "eco\tname\tpgn\nA00\tAmar Opening\t1. Nh3\n",
-			wantCount: 1,
-		},
-		{
-			name:      "multiple entries",
-			input:     "eco\tname\tpgn\nA00\tAmar Opening\t1. Nh3\nB01\tScandinavian Defense\t1. e4 d5\n",
-			wantCount: 2,
-		},
-		{
-			name:      "header only",
-			input:     "eco\tname\tpgn\n",
-			wantCount: 0,
-		},
-		{
-			name:    "malformed line",
-			input:   "eco\tname\tpgn\nbadline\n",
-			wantErr: true,
-		},
-		{
-			name:      "empty input",
-			input:     "",
-			wantCount: 0,
-		},
-		{
-			name:      "skips empty lines",
-			input:     "eco\tname\tpgn\n\nA00\tAmar Opening\t1. Nh3\n\n",
-			wantCount: 1,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			entries, err := parseOpenings(strings.NewReader(tc.input))
-
-			if tc.wantErr {
-				assert.Error(t, err)
-				return
-			}
-
-			require.NoError(t, err)
-			assert.Len(t, entries, tc.wantCount)
-		})
-	}
-}
-
-func TestParseLine(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name     string
-		line     string
-		wantName string
-		wantECO  string
-		wantErr  bool
-	}{
-		{
-			name:     "simple opening",
-			line:     "A00\tAmar Opening\t1. Nh3",
-			wantName: "Amar Opening",
-			wantECO:  "A00",
-		},
-		{
-			name:     "multi-move opening",
-			line:     "D01\tRapport-Jobava System\t1. d4 d5 2. Nc3 Nf6 3. Bf4",
-			wantName: "Rapport-Jobava System",
-			wantECO:  "D01",
-		},
-		{
-			name:    "too few fields",
-			line:    "A00\tAmar Opening",
-			wantErr: true,
-		},
-		{
-			name:    "invalid move",
-			line:    "A00\tBad Opening\t1. Zz9",
-			wantErr: true,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			entry, err := parseLine(tc.line)
-
-			if tc.wantErr {
-				assert.Error(t, err)
-				return
-			}
-
-			require.NoError(t, err)
-			assert.Equal(t, tc.wantECO, entry.opening.ECO)
-			assert.Equal(t, tc.wantName, entry.opening.Name)
-			assert.NotEmpty(t, entry.epd)
-			assert.NotEmpty(t, entry.uci)
-		})
-	}
-}
 
 func TestParsePGNMoves(t *testing.T) {
 	t.Parallel()
@@ -178,13 +65,17 @@ func TestParsePGNMoves(t *testing.T) {
 func TestPositionToEPD(t *testing.T) {
 	t.Parallel()
 
-	entry, err := parseLine("A00\tTest\t1. e4")
-	require.NoError(t, err)
+	game := chess.NewGame()
+	err := game.MoveStr("e4")
+
+	assert.NoError(t, err)
+
+	epd := positionToEPD(game.Position())
 
 	// After 1. e4 the EPD should have en passant on e3.
-	assert.Contains(t, entry.epd, "e3")
+	assert.Contains(t, epd, "e3")
 	// Black to move.
-	assert.Contains(t, entry.epd, " b ")
+	assert.Contains(t, epd, " b ")
 }
 
 func TestStripPGNToMovetext(t *testing.T) {
