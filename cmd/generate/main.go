@@ -74,11 +74,11 @@ func main() {
 	formatted, err := format.Source(src)
 	if err != nil {
 		// Write the unformatted source for debugging.
-		_ = os.WriteFile(outputFile, src, 0o600)
+		_ = os.WriteFile(outputFile, src, 0o644) //nolint:gosec // generated source file needs standard read permissions
 		log.Fatalf("gofmt failed (unformatted source written to %s): %v", outputFile, err)
 	}
 
-	if err := os.WriteFile(outputFile, formatted, 0o600); err != nil {
+	if err := os.WriteFile(outputFile, formatted, 0o644); err != nil { //nolint:gosec // generated source file needs standard read permissions
 		log.Fatalf("writing %s: %v", outputFile, err)
 	}
 
