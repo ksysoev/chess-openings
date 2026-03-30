@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/notnil/chess"
 )
@@ -27,6 +28,15 @@ const (
 )
 
 var tsvFiles = []string{"a", "b", "c", "d", "e"}
+
+// httpClient is used for all HTTP requests with a sensible timeout so that
+// stalled connections in CI do not hang indefinitely.
+var httpClient = &http.Client{Timeout: 30 * time.Second}
+
+const (
+	maxRetries   = 3
+	initialDelay = 1 * time.Second
+)
 
 // entry holds the pre-computed data for a single opening.
 type entry struct {
@@ -76,14 +86,45 @@ func main() {
 }
 
 // fetchAndParse downloads a TSV file and parses every line into entries.
+// It retries transient errors (network failures, HTTP 5xx, 429) with
+// exponential backoff so that scheduled CI runs are resilient to brief
+// network hiccups.
 func fetchAndParse(url string) ([]entry, error) {
-	resp, err := http.Get(url) //nolint:gosec,noctx // static trusted URL, no context needed
+	var lastErr error
+
+	delay := initialDelay
+
+	for attempt := range maxRetries {
+		entries, err := doFetch(url)
+		if err == nil {
+			return entries, nil
+		}
+
+		lastErr = err
+
+		if attempt < maxRetries-1 {
+			log.Printf("  attempt %d/%d failed: %v — retrying in %s", attempt+1, maxRetries, err, delay)
+			time.Sleep(delay)
+			delay *= 2
+		}
+	}
+
+	return nil, fmt.Errorf("after %d attempts: %w", maxRetries, lastErr)
+}
+
+// doFetch performs a single HTTP GET and parses the TSV response.
+// It returns an error for network failures and non-200 status codes;
+// the caller decides whether to retry.
+func doFetch(url string) ([]entry, error) {
+	resp, err := httpClient.Get(url)
 	if err != nil {
 		return nil, fmt.Errorf("fetching %s: %w", url, err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		// Drain body so the connection can be reused on retry.
+		_, _ = io.Copy(io.Discard, resp.Body)
 		return nil, fmt.Errorf("fetching %s: HTTP %d", url, resp.StatusCode)
 	}
 
