@@ -20,6 +20,8 @@ import (
 	"time"
 
 	"github.com/notnil/chess"
+
+	"github.com/ksysoev/chess-openings/internal/epdutil"
 )
 
 const (
@@ -86,9 +88,9 @@ func main() {
 }
 
 // fetchAndParse downloads a TSV file and parses every line into entries.
-// It retries transient errors (network failures, HTTP 5xx, 429) with
+// It retries all errors (network failures, non-200 HTTP responses) with
 // exponential backoff so that scheduled CI runs are resilient to brief
-// network hiccups.
+// outages.
 func fetchAndParse(url string) ([]entry, error) {
 	var lastErr error
 
@@ -201,7 +203,7 @@ func parseLine(line string) (entry, error) {
 // replayPGN replays PGN moves on a chess board and returns the final EPD
 // and the sequence of UCI moves.
 func replayPGN(pgn string) (epd string, uciMoves []string, err error) {
-	moves := parsePGNMoves(pgn)
+	moves := epdutil.ParsePGNMoves(pgn)
 	if len(moves) == 0 {
 		return "", nil, fmt.Errorf("no moves found in PGN: %q", pgn)
 	}
@@ -220,45 +222,9 @@ func replayPGN(pgn string) (epd string, uciMoves []string, err error) {
 		uciMoves = append(uciMoves, lastMove.String())
 	}
 
-	epd = positionToEPD(game.Position())
+	epd = epdutil.PositionToEPD(game.Position())
 
 	return epd, uciMoves, nil
-}
-
-// parsePGNMoves extracts individual SAN moves from a PGN movetext string.
-func parsePGNMoves(pgn string) []string {
-	tokens := strings.Fields(pgn)
-	moves := make([]string, 0, len(tokens))
-
-	for _, token := range tokens {
-		if token == "1-0" || token == "0-1" || token == "1/2-1/2" || token == "*" {
-			continue
-		}
-
-		if dotIdx := strings.LastIndex(token, "."); dotIdx >= 0 {
-			token = token[dotIdx+1:]
-		}
-
-		if token != "" {
-			moves = append(moves, token)
-		}
-	}
-
-	return moves
-}
-
-// positionToEPD converts a chess position to EPD format (FEN without move counters).
-func positionToEPD(pos *chess.Position) string {
-	board := pos.Board().String()
-	turn := pos.Turn().String()
-	castle := pos.CastleRights().String()
-
-	ep := "-"
-	if pos.EnPassantSquare() != chess.NoSquare {
-		ep = pos.EnPassantSquare().String()
-	}
-
-	return board + " " + turn + " " + castle + " " + ep
 }
 
 // generate produces the Go source for the pre-computed openings file.
