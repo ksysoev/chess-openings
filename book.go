@@ -1,16 +1,13 @@
 package openings
 
 import (
-	"embed"
 	"fmt"
-	"io/fs"
 	"strings"
 
 	"github.com/notnil/chess"
 )
 
-//go:embed data/*.tsv
-var dataFS embed.FS
+//go:generate go run ./cmd/generate
 
 // positionEntry stores an opening alongside its move count so that
 // specificity comparisons during loading do not require reparsing PGN.
@@ -29,59 +26,35 @@ type Book struct {
 
 // New creates a new Book loaded with the full Lichess opening database.
 // The database contains ~3,500 named openings across all ECO codes (A-E).
-func New() (*Book, error) {
+// Opening data is pre-computed at generation time, so New only needs to
+// build the lookup structures without any PGN parsing or board replay.
+func New() *Book {
 	book := &Book{
-		positions: make(map[string]*positionEntry),
+		positions: make(map[string]*positionEntry, len(generatedOpenings)),
 		trie:      newTrieNode(),
 	}
 
-	files, err := fs.Glob(dataFS, "data/*.tsv")
-	if err != nil {
-		return nil, fmt.Errorf("listing data files: %w", err)
-	}
+	for i := range generatedOpenings {
+		e := &generatedOpenings[i]
 
-	for _, path := range files {
-		if err := book.loadFile(path); err != nil {
-			return nil, fmt.Errorf("loading %s: %w", path, err)
+		opening := &Opening{
+			ECO:  e.eco,
+			Name: e.name,
+			PGN:  e.pgn,
 		}
-	}
 
-	return book, nil
-}
-
-// loadFile parses a single TSV file and adds its entries to the book.
-func (b *Book) loadFile(path string) error {
-	file, err := dataFS.Open(path)
-	if err != nil {
-		return fmt.Errorf("opening file: %w", err)
-	}
-	defer file.Close()
-
-	entries, err := parseOpenings(file)
-	if err != nil {
-		return fmt.Errorf("parsing: %w", err)
-	}
-
-	for _, entry := range entries {
-		b.addEntry(entry)
-	}
-
-	return nil
-}
-
-// addEntry adds a single opening entry to both the position map and the trie.
-// For the position map, if an EPD already exists, the entry with more moves
-// (more specific opening) is kept to provide the most precise classification.
-func (b *Book) addEntry(entry *openingEntry) {
-	existing, exists := b.positions[entry.epd]
-	if !exists || len(entry.uci) > existing.moveCount {
-		b.positions[entry.epd] = &positionEntry{
-			opening:   entry.opening,
-			moveCount: len(entry.uci),
+		existing, exists := book.positions[e.epd]
+		if !exists || len(e.uci) > existing.moveCount {
+			book.positions[e.epd] = &positionEntry{
+				opening:   opening,
+				moveCount: len(e.uci),
+			}
 		}
+
+		book.trie.insert(e.uci, opening)
 	}
 
-	b.trie.insert(entry.uci, entry.opening)
+	return book
 }
 
 // Classify identifies the opening from a sequence of moves in UCI notation
